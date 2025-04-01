@@ -1,5 +1,7 @@
 setuptools
 Flask
+ale-py
+shimmy
 
 requests
 
