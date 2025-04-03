@@ -13,3 +13,5 @@ gymnasium
 pygame
 
 scikit-learn
+
+opencv-python
