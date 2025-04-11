@@ -21,7 +21,7 @@ class PreprocessingFroggerConfig:
 
 class MemoryFroggerConfig:
     capacity : int = 100000
-    save_freq : int = 50
+    save_freq : int = 5
     save_dir : str = "./checkpoints"
     model_path : str = "dqn_model.keras"
     memory_path : str = "training_memory.pkl"

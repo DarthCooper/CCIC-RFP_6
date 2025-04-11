@@ -55,7 +55,9 @@ class DQNAgent:
         self.target_model.set_weights(self.model.get_weights())
 
         self.step_count = 0
+        self.episode = 1
         self.all_rewards = []
+
 
         if self.resume:
             self._load_memory()
@@ -89,27 +91,41 @@ class DQNAgent:
     def train(self):
         for episode in range(1, self.episodes + 1):
             obs_batch : np.ndarray = self.env.reset()
+
+            for i in range(0, 100):
+                next_obs_batch, rewards, dones_batch, truncateds_batch, _ = self.env.step([1] * self.env.get_num_envs())
+                if (all(dones_batch) or all(truncateds_batch)):
+                    break
+
             obs_batch = [self.preprocess(obs) for obs in obs_batch]
             obs_batch = self.stack_frames(obs_batch, is_new_episode=True)
 
             dones = [False] * self.env.get_num_envs()
+            dead = [False] * self.env.get_num_envs()
+            truncateds = [False] * self.env.get_num_envs()
             total_rewards = [0] * self.env.get_num_envs()
 
             for step in range(self.max_steps):
-                if all(dones):
-                    break
-
                 actions = [self.epsilon_greedy_action(obs, self.model, self.n_actions, self.epsilon) for obs in obs_batch]
-                next_obs_batch, rewards, dones_batch, _, _ = self.env.step(actions)
+                next_obs_batch, rewards, dones_batch, truncateds_batch, info_batch = self.env.step(actions)
                 next_obs_batch = [self.preprocess(obs) for obs in next_obs_batch]
                 next_obs_batch = self.stack_frames(next_obs_batch, is_new_episode=False)
 
                 for i in range(self.env.get_num_envs()):
                     self.buffer.add((obs_batch[i], actions[i], rewards[i], next_obs_batch[i], dones_batch[i]))
                     total_rewards[i] += rewards[i]
+                    dead[i] = info_batch[i]['lives'] == 0
+
+                if(all(dead)):
+                    print("All died...loading next episode")
+                    dones_batch = [True] * self.env.get_num_envs()
 
                 obs_batch = next_obs_batch
                 dones = dones_batch
+                truncateds = truncateds_batch
+
+                if all(dones) or all(truncateds):
+                    break
 
                 if len(self.buffer) >= self.batch_size:
                     states_s, actions_s, rewards_s, next_states_s, dones_s = self.buffer.sample(self.batch_size)
@@ -119,9 +135,12 @@ class DQNAgent:
                     max_q_next = np.max(q_next, axis=1)
 
                     for i in range(self.batch_size):
-                        q_targets[i][actions_s[i]] = rewards_s[i] + (1 - dones_s[i]) * self.gamma * max_q_next[i]
+                        if(dones_s[i]):
+                            q_targets[i][actions_s[i]] = rewards_s[i]
+                        else:
+                            q_targets[i][actions_s[i]] = rewards_s[i] + (1 - dones_s[i]) * self.gamma * max_q_next[i]
 
-                    self.model.fit(states_s, q_targets, verbose=0)
+                    self.model.fit(states_s, q_targets, epochs=1, verbose=0)
 
                     self.step_count += 1
                     if self.step_count % self.update_target_freq == 0:
@@ -131,13 +150,15 @@ class DQNAgent:
                 avg_reward = np.mean(total_rewards)
                 self.all_rewards.append(avg_reward)
 
-                print(f"Episode {episode} - Avg Reward: {avg_reward:.2f} - Epsilon: {self.epsilon:.4f} - Steps {self.step_count} - Dones : {dones}")
+                print(f"Episode {self.episode} - Avg Reward: {avg_reward:.2f} - Epsilon: {self.epsilon:.4f} - Steps {self.step_count} - infos : {info_batch}")
 
-                if episode % self.save_freq == 0:
-                    self._save_progress()
+            self.episode += 1
+
+            if episode % self.save_freq == 0:
+                self._save_progress()
 
         self.env.close()
-        
+
     def create_dqn_model(self, input_shape : Tuple[int, int, int] = (84, 84, 1), num_actions : int = 5) -> Sequential:
         """Build a CNN model for Deep Q-Learning"""
         model = Sequential([
@@ -158,11 +179,12 @@ class DQNAgent:
         return np.argmax(q_values[0])
     
     def _load_or_create_model(self):
-        if self.resume and os.path.exists(self.MODEL_PATH):
-            print("[INFO] Loading existing model...")
-            return load_model(self.MODEL_PATH)
-        else:
-            return self.create_dqn_model(self.obs_shape, self.n_actions)
+        model = self.create_dqn_model(self.obs_shape, self.n_actions)
+        weights_path = os.path.join(self.SAVE_DIR, "dqn_weights.weights.h5")
+        if self.resume and os.path.exists(weights_path):
+            print("[INFO] Loading model weights...")
+            model.load_weights(weights_path)
+        return model
         
     def _load_memory(self):
         if os.path.exists(self.MEMORY_PATH):
@@ -174,11 +196,12 @@ class DQNAgent:
                 print(f"[INFO] Resumed from episode {self.episode}")
 
     def _save_progress(self):
-        self.model.save(self.MODEL_PATH)
+        weights_path = os.path.join(self.SAVE_DIR, "dqn_weights.weights.h5")
+        self.model.save_weights(weights_path)
         with open(self.MEMORY_PATH, "wb") as f:
             pickle.dump({
-                "episode" : self.episode,
-                "epsilon" : self.epsilon,
-                "all_rewards" : self.all_rewards
+                "episode": self.episode,
+                "epsilon": self.epsilon,
+                "all_rewards": self.all_rewards
             }, f)
-        print(f"[Checkpoint] Saved at episode {self.episode}")
+        print(f"[Checkpoint] Episode {self.episode} saved.")

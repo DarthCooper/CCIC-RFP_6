@@ -80,9 +80,10 @@ class CustomVecEnv(VecEnv):
 
         self.action_spaces = ActionSpaces(self.action_spaces)
 
-    def reset(self):
+    def reset(self, **kwargs):
         """Reset all environments and return observations."""
         print("Main process sending reset command...", flush=True)
+
         for q_in, _ in self.queues:
             q_in.put(('reset', None))
 
