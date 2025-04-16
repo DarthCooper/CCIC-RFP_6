@@ -8,6 +8,8 @@ from keras.api.layers import Dense, Conv2D, Flatten
 from keras.api.optimizers import Adam
 from keras.api.models import load_model
 from collections import deque
+import gymnasium as gym
+from gymnasium.wrappers import AtariPreprocessing
 import cv2
 
 from envs.FroggerEnv import CustomVecEnv
@@ -158,6 +160,49 @@ class DQNAgent:
                 self._save_progress()
 
         self.env.close()
+
+    def test(self, episodes=5, render=False, record=False):
+        test_env : gym.Env = gym.make("ALE/Frogger-v5", render_mode="human")
+        test_env = AtariPreprocessing(test_env, frame_skip=1, noop_max=0)
+        
+        print(f"[TEST] Running {episodes} test episodes...")
+
+        for ep in range(episodes):
+            obs, info = test_env.reset()
+            obs = self.preprocess(obs)
+            self.frame_stack[0].clear()
+            for _ in range(self.stack_size):
+                self.frame_stack[0].append(obs)
+            state = np.concatenate(list(self.frame_stack[0]), axis=-1)
+
+            done = False
+            total_reward = 0
+            frames = []
+
+            while not done:
+                action = np.argmax(self.model.predict(np.expand_dims(state, axis=0), verbose=0)[0])
+                next_obs, reward, done, _, _ = test_env.step(action)
+                total_reward += reward
+
+                if render:
+                    frame = test_env.render()
+                    frames.append(frame)
+
+                next_obs = self.preprocess(next_obs)
+                self.frame_stack[0].append(next_obs)
+                state = np.concatenate(list(self.frame_stack[0]), axis=-1)
+
+            print(f"[TEST] Episode {ep + 1} reward: {total_reward}")
+
+            if record:
+                os.makedirs("test_videos", exist_ok=True)
+                out = cv2.VideoWriter(f'test_videos/episode_{ep+1}.mp4', cv2.VideoWriter_fourcc(*'mp4v'), 30, (frames[0].shape[1], frames[0].shape[0]))
+                for f in frames:
+                    out.write(cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
+                out.release()
+
+        test_env.close()
+            
 
     def create_dqn_model(self, input_shape : Tuple[int, int, int] = (84, 84, 1), num_actions : int = 5) -> Sequential:
         """Build a CNN model for Deep Q-Learning"""

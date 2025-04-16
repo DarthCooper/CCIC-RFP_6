@@ -37,13 +37,14 @@ def worker(i, q_in : multiprocessing.Queue, q_out : multiprocessing.Queue, env :
             continue
 
 class CustomVecEnv(VecEnv):
-    def __init__(self):
-        self.num_envs = BFconfig.num_envs
+    def __init__(self, num_envs : int = BFconfig.num_envs, render : str = BFconfig.render_mode):
+        self.num_envs = num_envs
         self.envs = [None] * self.num_envs
         self.action_spaces = [None] * self.num_envs
         self.processes = []
         self.queues = []
         self.closed = False
+        
 
         manager = multiprocessing.Manager()
         self.envs = manager.list([None] * self.num_envs)
@@ -53,7 +54,7 @@ class CustomVecEnv(VecEnv):
                 id = BFconfig.env_name, 
                 max_episode_steps = BFconfig.max_episode_steps,
                 disable_env_checker = BFconfig.disable_env_checker,
-                render_mode = BFconfig.render_mode,
+                render_mode = render,
                 full_action_space = BFconfig.full_action_space
                 )
             env = AtariPreprocessing(
@@ -98,6 +99,7 @@ class CustomVecEnv(VecEnv):
                 print("Timeout waiting for reset response.")
                 observations.append(None)
         return np.array(observations)
+    
     
     def step(self, actions):
         """Send actions to the subprocesses and collect the results."""
